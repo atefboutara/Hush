@@ -1,0 +1,10 @@
+Usage:
+-----
+
+Tools > EOL Fixer > Windows (or) Unix (or) Mac
+
+Normalizes the "end of line" of every file to the desired style:
+
+Windows:	\r\n
+Unix:		\n
+Mac:		\r

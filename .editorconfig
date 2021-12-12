@@ -1,0 +1,13 @@
+﻿[*.cs]
+
+# CS0108: Un membre masque un membre hérité ; le mot clé new est manquant
+dotnet_diagnostic.CS0108.severity = none
+
+# CS0618: Le type ou le membre est obsolète
+dotnet_diagnostic.CS0618.severity = silent
+
+# CS0168: La variable est déclarée mais jamais utilisée
+dotnet_diagnostic.CS0168.severity = silent
+
+# IDE0055: Corriger la mise en forme
+dotnet_diagnostic.IDE0055.severity = silent
