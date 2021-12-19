@@ -6,6 +6,11 @@ console.log('Server started on port ' + port);
 var MatchLobbys = []
 var players = [];
 var survivorTotal = 5;
+var totalSurvivorSpawnPoints = 4;
+
+function randomInteger(min, max) {
+	return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
 
 class MatchLobby {
 	constructor()
@@ -15,6 +20,7 @@ class MatchLobby {
 		this.HunterCount = 0;
 		this.SurvivorList = [];
 		this.HunterList = [];
+		this.SpawnPointsTaken = [];
 		this.LobbyID = ++MatchLobby.counter;
 		this.MatchStarting = false;
 		this.CheckingReady = false;
@@ -23,43 +29,45 @@ class MatchLobby {
 	AddSurvivor(ID)
 	{
 		this.SurvivorCount += 1;
+		players[ID].type = "Survivor";
 		//this.SurvivorList[this.SurvivorCount-1] = players[ID];
 		this.SurvivorList.push(players[ID]);
 		console.log('Added Player ', this.SurvivorCount,'/',survivorTotal,' (PlayerID: ', ID,') to lobby ', this.LobbyID);
 		if(this.SurvivorCount == survivorTotal)
 		{
-			this.FirstHunterSlotID = Math.floor(Math.random() * survivorTotal);
+			this.FirstHunterSlotID = randomInteger(0, this.SurvivorCount-1);
 			this.MatchStarting = true;
 			console.log("Match starting on lobby ", this.LobbyID);
 			io.to(this.SurvivorList[this.FirstHunterSlotID].socketid).emit('SetSlasher', {State:true});
+			this.ChangePlayerToHunter(ID);
+
+			var i;
+			for(i = 0; i<this.SurvivorCount; i++)
+			{
+				var rSpawn = randomInteger(0,totalSurvivorSpawnPoints-1);
+				var generatedSpawn = false;
+				while(!generatedSpawn)
+				{
+					if(this.SpawnPointsTaken.includes(rSpawn))
+						rSpawn = randomInteger(0,totalSurvivorSpawnPoints-1);
+					else {
+						this.SpawnPointsTaken.push(rSpawn);
+						generatedSpawn = true;
+					}
+				}
+				this.SurvivorList[i].spawnPoint = rSpawn;
+			}
+
+			for(i = 0; i<this.SurvivorCount; i++)
+			{
+				io.to(this.SurvivorList[i].socketid).emit('LobbyReady',{"spawnPoint":rSpawn});
+			}
+			for(i = 0; i<this.HunterCount; i++)
+			{
+				io.to(this.HunterList[i].socketid).emit('LobbyReady',{"spawnPoint":0});
+			}
 		}
 	}
-	
-	/*StartMatch()
-	{
-		this.FirstHunterSlotID = Math.floor(Math.random() * survivorTotal);
-		this.MatchStarting = true;
-		console.log("Match starting on lobby ", this.LobbyID);
-		var i;
-		for(i = 0; i<this.SurvivorCount; i++)
-		{
-			io.to(this.SurvivorList[i].socketid).emit('LobbyReady');
-		}
-		clearInterval(this.startTimer);
-	}*/
-	
-	/*AddHunter(ID)
-	{
-		this.HunterCount += 1;
-		//this.HunterList[this.HunterCount-1] = players[ID];
-		this.HunterList.push(players[ID]);
-		console.log('Added Hunter ', this.HunterCount,'/1  (PlayerID: ', ID,') to lobby ', this.LobbyID);
-		if(this.SurvivorCount == 4 && this.HunterCount == 1)
-		{
-			this.MatchStarting = true;
-			console.log("Match starting on lobby ", this.LobbyID);
-		}
-	}*/
 	
 	RemoveSurvivor(ID, lobbyParam)
 	{
@@ -74,6 +82,20 @@ class MatchLobby {
 		//delete this.HunterList[this.GetHunterIndex(ID)];
 		this.HunterList.splice(this.GetHunterIndex(ID), 1);
 		this.HunterCount -= 1;
+	}
+
+	ChangePlayerToHunter(ID)
+	{
+		this.SurvivorList.splice(this.GetSurvivorIndex(ID), 1);
+		this.SurvivorCount -= 1;
+		this.HunterList.push(players[ID]);
+		this.HunterCount += 1;
+		this.HunterList[0].spawnPoint = 0;
+		this.HunterList[0].type = "Hunter";
+		this.HunterList[0].id = ID;
+		players[ID].type = "Hunter";
+		players[ID].spawnPoint = 0;
+		console.log("Player " + ID + " chosen as slasher in lobby " + this.LobbyID);
 	}
 	
 	GetSurvivorIndex(ID)
@@ -120,6 +142,23 @@ class MatchLobby {
 		}
 		return AllPlayers;
 	}
+
+	LoadedOneMorePlayer(ID)
+	{
+		var i = 0;
+		for(i = 0; i<this.SurvivorCount; i++)
+		{
+			if(this.SurvivorList[i].id == ID)
+				continue;
+			io.to(this.SurvivorList[i].socketid).emit('OtherPlayerLoaded');
+		}
+		for(i = 0; i<this.HunterCount; i++)
+		{
+			if(this.HunterList[i].id == ID)
+				continue;
+			io.to(this.HunterList[i].socketid).emit('OtherPlayerLoaded');
+		}
+	}
 }
 
 MatchLobby.counter = -1;
@@ -151,7 +190,8 @@ io.on('connection', function(socket){
 			x:0,
 			y:0,
 			z:0
-		}
+		},
+		spawnPoint:-1
     }
 	players[thisPlayerId] = player;
 	console.log("Client connected with ID: " + thisPlayerId + " waiting for name..");
@@ -161,28 +201,43 @@ io.on('connection', function(socket){
 		console.log("Received name " + data.Name + " for client ID : " + thisPlayerId);
 		player.name = data.Name;
 	});
+
+	socket.on('updateProfileToSlasher', function(data) {
+		player.type = "Hunter";
+	});
 	
 	socket.on('SpawnRequest', function(data) {
-		/*socket.broadcast.emit('spawn', {id: thisPlayerId});
-		socket.broadcast.emit('requestPosition');*/
 		console.log('Spawn request from PlayerID: ', thisPlayerId);
 		if(player.type == "Hunter")
 		{
 			data.type = "Hunter";
 			lobbyIndex = CurrentLobby.GetHunterIndex(thisPlayerId);
-			CurrentLobby.HunterList[lobbyIndex].pos=(data["pos"]);
-			CurrentLobby.HunterList[lobbyIndex].Rot=(data["Rot"]);
-			socket.broadcast.emit('SpawnOthers', CurrentLobby.HunterList[lobbyIndex]);
-			console.log('PlayerID: ', thisPlayerId, ' informations: ', CurrentLobby.HunterList[lobbyIndex]);
+			CurrentLobby.HunterList[0].pos = data.pos;
+			CurrentLobby.HunterList[0].Rot = data.Rot;
+			var i = 0;
+			for(i = 0; i<CurrentLobby.SurvivorCount; i++)
+			{
+				io.to(CurrentLobby.SurvivorList[i].socketid).emit('SpawnOthers', {"thisPlayerId":CurrentLobby.HunterList[lobbyIndex].thisPlayerId,"type":CurrentLobby.HunterList[lobbyIndex].type,"spawnPoint":CurrentLobby.HunterList[lobbyIndex].spawnPoint});
+			}
+			//console.log('PlayerID: ', thisPlayerId, ' informations: ', CurrentLobby.HunterList[lobbyIndex]);
+			console.log("Spawned " + thisPlayerId);
 		}
 		else
 		{
 			data.type = "Survivor";
 			lobbyIndex = CurrentLobby.GetSurvivorIndex(thisPlayerId);	
-			CurrentLobby.SurvivorList[lobbyIndex].pos=(data["pos"]);
-			CurrentLobby.SurvivorList[lobbyIndex].Rot=(data["Rot"]);
-			socket.broadcast.emit('SpawnOthers', CurrentLobby.SurvivorList[lobbyIndex]);
-			console.log('PlayerID: ', thisPlayerId, ' informations: ', CurrentLobby.SurvivorList[lobbyIndex]);
+			CurrentLobby.SurvivorList[lobbyIndex].pos = data.pos;
+			CurrentLobby.SurvivorList[lobbyIndex].Rot = data.Rot;
+			console.log("Set pos and rotation for " + thisPlayerId + " sending to other players");
+			var i = 0;
+			for(i = 0; i<CurrentLobby.SurvivorCount; i++)
+			{
+				if(CurrentLobby.SurvivorList[i].id == thisPlayerId)
+					continue;
+				io.to(CurrentLobby.SurvivorList[i].socketid).emit('SpawnOthers', {"thisPlayerId":CurrentLobby.SurvivorList[lobbyIndex].thisPlayerId,"type":CurrentLobby.SurvivorList[lobbyIndex].type,"spawnPoint":CurrentLobby.SurvivorList[lobbyIndex].spawnPoint});
+			}
+			console.log("Spawned " + thisPlayerId);
+			//console.log('PlayerID: ', thisPlayerId, ' informations: ', CurrentLobby.SurvivorList[lobbyIndex]);
 		}
 
 		var PlayersInLobby = CurrentLobby.GetAllPlayers();
@@ -191,7 +246,7 @@ io.on('connection', function(socket){
 		{
 			if(PlayersInLobby[i].id == thisPlayerId)
 				continue;
-			socket.emit('SpawnOthers', PlayersInLobby[i]);
+			socket.emit('SpawnOthers', {"thisPlayerId":PlayersInLobby[i].thisPlayerId, "type":PlayersInLobby[i].type, "spawnPoint":PlayersInLobby[i].spawnPoint});
 		}
 	});
 	
@@ -202,15 +257,15 @@ io.on('connection', function(socket){
 		{
 			data.type = "Hunter";
 			lobbyIndex = CurrentLobby.GetHunterIndex(thisPlayerId);
-			CurrentLobby.HunterList[lobbyIndex].pos=(data["pos"]);
-			CurrentLobby.HunterList[lobbyIndex].Rot=(data["Rot"]);
+			CurrentLobby.HunterList[lobbyIndex].pos = data.pos;
+			CurrentLobby.HunterList[lobbyIndex].Rot = data.Rot;
 		}
 		else
 		{
 			data.type = "Survivor";
 			lobbyIndex = CurrentLobby.GetSurvivorIndex(thisPlayerId);	
-			CurrentLobby.SurvivorList[lobbyIndex].pos=(data["pos"]);
-			CurrentLobby.SurvivorList[lobbyIndex].Rot=(data["Rot"]);
+			CurrentLobby.SurvivorList[lobbyIndex].pos = data.pos;
+			CurrentLobby.SurvivorList[lobbyIndex].Rot = data.Rot;
 		}
 		data.id=thisPlayerId;
 		socket.broadcast.emit('UpdatePositionForOthers',data);
@@ -263,7 +318,7 @@ io.on('connection', function(socket){
 		player.type = data.type;
 		searchingMatch = true;
 		
-		while(searchingMatch) {
+		while(searchingMatch && inLobby == false) {
 			console.log("Player ID : ", thisPlayerId, " searching for lobby loop ");
 			if(MatchLobbys.length > 0 && (AllLobbysFull(player.type) == false))
 			{
@@ -284,7 +339,7 @@ io.on('connection', function(socket){
 						}
 					}
 					else {*/
-						if(MatchLobbys[i].SurvivorCount < survivorTotal)
+						if((MatchLobbys[i].SurvivorCount + MatchLobbys[i].HunterCount) < survivorTotal)
 						{
 							MatchLobbys[i].AddSurvivor(thisPlayerId);
 							searchingMatch = false;
@@ -305,14 +360,14 @@ io.on('connection', function(socket){
 							{
 								socket.emit('LobbyReady');
 							}*/
-							if(CurrentLobby.MatchStarting)
+							/*if(CurrentLobby.MatchStarting)
 							{
 								var i;
 								for(i = 0; i<CurrentLobby.SurvivorCount; i++)
 								{
 									io.to(CurrentLobby.SurvivorList[i].socketid).emit('LobbyReady');
 								}
-							}
+							}*/
 							break;
 						}
 					//}
@@ -323,48 +378,17 @@ io.on('connection', function(socket){
 				var L = CreateLobby();
 				CurrentLobby = L;
 				player.currentLobby = CurrentLobby;
-				if(player.type == "Hunter")
-				{
-					L.AddHunter(thisPlayerId);
-					searchingMatch = false;
-					inLobby = true;
-					socket.emit('JoinedLobby', {LobbyID:0, Remaining:CurrentLobby.SurvivorCount});					
-				}
-				else {
-					L.AddSurvivor(thisPlayerId);
-					searchingMatch = false;
-					inLobby = true;
-					socket.emit('JoinedLobby', {LobbyID:0, Remaining:CurrentLobby.SurvivorCount});
-				}
+				L.AddSurvivor(thisPlayerId);
+				searchingMatch = false;
+				inLobby = true;
+				socket.emit('JoinedLobby', {LobbyID:CurrentLobby.LobbyID, Remaining:CurrentLobby.SurvivorCount});
+				break;
 			}
 		}
 	});
-	
-	/*socket.on('onPlayerJoinedLobby', function(data) {
-		
-		var LobbyReceivedID = data.lobbyID;
-		//console.log('Someplayer joined lobby ', LobbyReceivedID); 
-		if(inLobby && CurrentLobby.LobbyID == LobbyReceivedID)
-		{
-			if(CurrentLobby.MatchStarting)
-			{
-				socket.emit('LobbyReady');
-			}
-		}
-	});*/
 
 	socket.on("ReadyLoading", function(data) {
-		var i = 0;
-		for(i = 0; i<CurrentLobby.SurvivorCount; i++)
-		{
-			if(CurrentLobby.SurvivorList[i].id == thisPlayerId)
-				continue;
-			io.to(CurrentLobby.SurvivorList[i].socketid).emit('OtherPlayerLoaded');
-		}
-	});
-	
-	socket.on("SpawnMe", function(data) {
-		
+		CurrentLobby.LoadedOneMorePlayer(thisPlayerId);
 	});
 	
 	socket.on('disconnect', function() {
@@ -429,7 +453,7 @@ io.on('connection', function(socket){
 			}
 			else 
 			{*/
-				if(MatchLobbys[i].SurvivorCount < survivorTotal)
+				if((MatchLobbys[i].SurvivorCount + MatchLobbys[i].HunterCount) < survivorTotal)
 				{
 					bool = false;
 					break;

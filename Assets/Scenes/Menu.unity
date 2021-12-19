@@ -5414,6 +5414,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1db3f3c877754104caa30d9fff08cdac, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  PlayerPrefab: {fileID: 7541034661336970120, guid: 7da39e290eb8ea94da7fae8cc51464a9,
+    type: 3}
+  NetworkPlayerPrefab: {fileID: 2270517860199061645, guid: 62860c4a7c974b240bd793faa7b5acc3,
+    type: 3}
 --- !u!114 &1613866489
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5432,6 +5436,9 @@ MonoBehaviour:
   LobbyState: 
   currentLobby: -1
   Slasher: 0
+  SpawnPoint: -1
+  myPlayer: {fileID: 0}
+  AlwaysAskForName: 1
 --- !u!4 &1614266231
 Transform:
   m_ObjectHideFlags: 0
@@ -35319,7 +35326,7 @@ AudioSource:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 7542024629188718774}
-  m_Enabled: 1
+  m_Enabled: 0
   serializedVersion: 4
   OutputAudioMixerGroup: {fileID: 0}
   m_audioClip: {fileID: 8300000, guid: 0d1b5f9037b94804989beccbf4f59e47, type: 3}

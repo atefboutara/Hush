@@ -13,10 +13,15 @@ public class HushManager : MonoBehaviour
     public string LobbyState = "";
     public int currentLobby = -1;
     public bool Slasher = false;
+    public int SpawnPoint = -1;
+    public GameObject myPlayer = null;
+    public bool AlwaysAskForName = true;
 
     #region MonoBehaviour
     private void Start()
     {
+        if(AlwaysAskForName)
+            PlayerPrefs.DeleteKey("Name");
         if (Instance == null)
         {
             Instance = this;

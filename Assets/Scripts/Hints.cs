@@ -32,7 +32,7 @@ public class Hints : MonoBehaviour
 
     IEnumerator ReadyLoading()
     {
-        yield return new WaitForSeconds(2f);
+        yield return new WaitForSeconds(0.5f);
         HushNetwork.Instance.SetReadyLoading();
     }
 
@@ -63,7 +63,7 @@ public class Hints : MonoBehaviour
 
     IEnumerator checkLoadingCompleted()
     {
-        yield return new WaitForSeconds(0.4f);
+        yield return new WaitForSeconds(0.1f);
         float value = transform.parent.GetComponent<Slider>().value;
         if (value >= 1.0f)
         {

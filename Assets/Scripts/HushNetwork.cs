@@ -8,6 +8,9 @@ public class HushNetwork : MonoBehaviour
 {
     public static HushNetwork Instance = null;
     public static SocketIOComponent socket;
+    public GameObject PlayerPrefab;
+    public GameObject NetworkPlayerPrefab;
+
     void Awake()
     {
         socket = GetComponent<SocketIOComponent>();
@@ -26,6 +29,7 @@ public class HushNetwork : MonoBehaviour
         socket.On("LobbyReady", onLobbyReady);
         socket.On("SetSlasher", onSetSlasher);
         socket.On("OtherPlayerLoaded", onOtherPlayerLoaded);
+        socket.On("SpawnOthers", onSpawnOthers);
     }
 
     public void SendNameToServer()
@@ -41,7 +45,8 @@ public class HushNetwork : MonoBehaviour
         string ID = e.data["ID"].str;
         HushManager.Instance.ID = ID;
         Debug.Log("Received ID from server, ID = " + ID + " sending name.");
-        SendNameToServer();
+        if (PlayerPrefs.HasKey("Name"))
+            SendNameToServer();
     }
 
     public void onJoinedLobby(SocketIOEvent e)
@@ -107,8 +112,21 @@ public class HushNetwork : MonoBehaviour
         }
     }
 
+    Vector3 getSpawnPosition()
+    {
+        GameObject SpawnPoint = GameObject.Find(HushManager.Instance.Slasher ? "SlasherSpawn" : "SpawnPoint ("+HushManager.Instance.SpawnPoint+")");
+        return SpawnPoint.transform.position;
+    }
+
+    Vector3 getNetworkSpawnPosition(int s, bool isSlasher)
+    {
+        GameObject SpawnPoint = GameObject.Find(isSlasher ? "SlasherSpawn" : "SpawnPoint (" + s + ")");
+        return SpawnPoint.transform.position;
+    }
+
     public void onLobbyReady(SocketIOEvent e)
     {
+        HushManager.Instance.SpawnPoint = int.Parse(RemoveQuotes(e.data["spawnPoint"].ToString()));
         HushManager.Instance.ChangeLobbyState("MATCH READY");
         HushManager.Instance.LoadGame();
     }
@@ -117,6 +135,7 @@ public class HushNetwork : MonoBehaviour
     {
         bool state = e.data["State"].b;
         HushManager.Instance.Slasher = state;
+        socket.Emit("updateProfileToSlasher");
     }
 
     public void SetReadyLoading()
@@ -131,9 +150,37 @@ public class HushNetwork : MonoBehaviour
         Hints.Instance.AddLoadingPercentage();
     }
 
+    public void onSpawnOthers(SocketIOEvent e)
+    {
+        Debug.Log(e.data);
+        string playerID = RemoveQuotes(e.data["thisPlayerId"].ToString());
+        Debug.Log("playerID " + playerID);
+        string playerType = RemoveQuotes(e.data["type"].ToString());
+        Debug.Log("playerType " + playerType);
+        int spawnPoint = int.Parse(RemoveQuotes(e.data["spawnPoint"].ToString()));
+        Debug.Log("Spawnpoint " + spawnPoint);
+        GameObject netplayer = Instantiate(NetworkPlayerPrefab);
+        netplayer.transform.name = playerID;
+        netplayer.transform.position = getNetworkSpawnPosition(spawnPoint,playerType == "Hunter");
+    }
+
+    JSONObject Vector3ToJson(Vector3 pos)
+    {
+        JSONObject jSONObject = new JSONObject(JSONObject.Type.OBJECT);
+        jSONObject.AddField("x", pos.x.ToString());
+        jSONObject.AddField("y", pos.y.ToString());
+        jSONObject.AddField("z", pos.z.ToString());
+        return jSONObject;
+    }
+
     public void AskToSpawn()
     {
-        socket.Emit("SpawnMe");
+        GameObject player = Instantiate(PlayerPrefab);
+        player.transform.position = getSpawnPosition();
+        JSONObject jSONObject = new JSONObject(JSONObject.Type.OBJECT);
+        jSONObject.AddField("pos", Vector3ToJson(player.transform.position));
+        jSONObject.AddField("Rot", Vector3ToJson(player.transform.eulerAngles));
+        socket.Emit("SpawnRequest", jSONObject);
     }
 
     public void SearchForMatch()
