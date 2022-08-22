@@ -58,7 +58,7 @@ public class Hints : MonoBehaviour
     public void AddLoadingPercentage()
     {
         transform.parent.GetComponent<Slider>().value += 0.2f;
-        StartCoroutine(checkLoadingCompleted());
+        //StartCoroutine(checkLoadingCompleted());
     }
 
     IEnumerator checkLoadingCompleted()

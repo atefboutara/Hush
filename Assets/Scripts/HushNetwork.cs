@@ -10,6 +10,7 @@ public class HushNetwork : MonoBehaviour
     public static SocketIOComponent socket;
     public GameObject PlayerPrefab;
     public GameObject NetworkPlayerPrefab;
+    public bool searchingMatch = false;
 
     void Awake()
     {
@@ -29,7 +30,10 @@ public class HushNetwork : MonoBehaviour
         socket.On("LobbyReady", onLobbyReady);
         socket.On("SetSlasher", onSetSlasher);
         socket.On("OtherPlayerLoaded", onOtherPlayerLoaded);
+        socket.On("AllPlayersHaveLoaded", onAllPlayersHaveLoaded);
         socket.On("SpawnOthers", onSpawnOthers);
+        socket.On("UpdatePositionForOthers", onUpdatePositionForOthers);
+        socket.On("UpdateAnimationForOthers", onUpdateAnimationForOthers);
     }
 
     public void SendNameToServer()
@@ -127,6 +131,7 @@ public class HushNetwork : MonoBehaviour
     public void onLobbyReady(SocketIOEvent e)
     {
         HushManager.Instance.SpawnPoint = int.Parse(RemoveQuotes(e.data["spawnPoint"].ToString()));
+        Debug.Log("My spawn point is (ID: "+HushManager.Instance.ID+")" + HushManager.Instance.SpawnPoint);
         HushManager.Instance.ChangeLobbyState("MATCH READY");
         HushManager.Instance.LoadGame();
     }
@@ -150,6 +155,14 @@ public class HushNetwork : MonoBehaviour
         Hints.Instance.AddLoadingPercentage();
     }
 
+    public void onAllPlayersHaveLoaded(SocketIOEvent e)
+    {
+        Debug.Log("All players have loaded");
+        Hints.Instance.AddLoadingPercentage();
+        Hints.Instance.transform.parent.parent.gameObject.SetActive(false);
+        AskToSpawn();
+    }
+
     public void onSpawnOthers(SocketIOEvent e)
     {
         Debug.Log(e.data);
@@ -162,6 +175,83 @@ public class HushNetwork : MonoBehaviour
         GameObject netplayer = Instantiate(NetworkPlayerPrefab);
         netplayer.transform.name = playerID;
         netplayer.transform.position = getNetworkSpawnPosition(spawnPoint,playerType == "Hunter");
+        if (playerType == "Hunter")
+        {
+            EquipItems EI = netplayer.AddComponent<EquipItems>();
+        }
+    }
+
+    public void onUpdatePositionForOthers(SocketIOEvent e)
+    {
+        string playerID = RemoveQuotes(e.data["id"].ToString());
+        Vector3 pos = GetVectorFromJson("pos", e);
+        Vector3 rot = GetVectorFromJson("Rot", e);
+
+        GameObject otherPlayer = GameObject.Find(playerID);
+        otherPlayer.transform.position = pos;
+        otherPlayer.transform.eulerAngles = rot;
+    }
+
+    public void SendMyPositionToOthers()
+    {
+        JSONObject jSONObject = new JSONObject(JSONObject.Type.OBJECT);
+        bool slash = HushManager.Instance.Slasher;
+        jSONObject.AddField("type", slash ? "Hunter" : "Survivor");
+        jSONObject.AddField("pos", Vector3ToJson(Player.Instance.transform.position));
+        jSONObject.AddField("Rot", Vector3ToJson(Player.Instance.transform.eulerAngles));
+        socket.Emit("UpdatePosition", jSONObject);
+    }
+
+    public void SendMyAnimation(string animname, bool animstate)
+    {
+        JSONObject jSONObject = new JSONObject(JSONObject.Type.OBJECT);
+        bool slash = HushManager.Instance.Slasher;
+        jSONObject.AddField("type", slash ? "Hunter" : "Survivor");
+        jSONObject.AddField("animation", animname);
+        jSONObject.AddField("state", animstate);
+        socket.Emit("UpdateAnimation", jSONObject);
+    }
+
+    public void onUpdateAnimationForOthers(SocketIOEvent e)
+    {
+        string playerID = RemoveQuotes(e.data["id"].ToString());
+        string animation = RemoveQuotes(e.data["animation"].ToString());
+        bool state = bool.Parse(RemoveQuotes(e.data["state"].ToString()));
+        GameObject otherPlayer = GameObject.Find(playerID);
+        if(animation == "Hiding")
+        {
+            Rigidbody _rigidbody = otherPlayer.GetComponent<Rigidbody>();
+            if (state)
+                _rigidbody.isKinematic = true;
+            else _rigidbody.isKinematic = false;
+        }
+        otherPlayer.GetComponent<Animator>().SetBool(animation, state);
+
+    }
+
+    public string RemoveQuotesAndReplacePoint(string word)
+    {
+        string word2 = "";
+        for (int i = 0; i < word.Length; i++)
+        {
+            if (word[i] == '.')
+            {
+                word2 += ',';
+            }
+            else if (word[i] != '"')
+            {
+                word2 += word[i];
+            }
+        }
+        return word2;
+    }
+
+    Vector3 GetVectorFromJson(string key,SocketIOEvent obj)
+    {
+        string x = RemoveQuotesAndReplacePoint(obj.data[key]["x"].ToString());
+        string y = RemoveQuotesAndReplacePoint(obj.data[key]["y"].ToString());
+        string z = RemoveQuotesAndReplacePoint(obj.data[key]["z"].ToString());
+        return new Vector3(float.Parse(x), float.Parse(y), float.Parse(z));
     }
 
     JSONObject Vector3ToJson(Vector3 pos)
@@ -178,6 +268,8 @@ public class HushNetwork : MonoBehaviour
         GameObject player = Instantiate(PlayerPrefab);
         player.transform.position = getSpawnPosition();
         JSONObject jSONObject = new JSONObject(JSONObject.Type.OBJECT);
+        bool slash = HushManager.Instance.Slasher;
+        jSONObject.AddField("type", slash ? "Hunter" : "Survivor");
         jSONObject.AddField("pos", Vector3ToJson(player.transform.position));
         jSONObject.AddField("Rot", Vector3ToJson(player.transform.eulerAngles));
         socket.Emit("SpawnRequest", jSONObject);
@@ -185,14 +277,19 @@ public class HushNetwork : MonoBehaviour
 
     public void SearchForMatch()
     {
-        Debug.Log("Searching for match");
-        HushManager.Instance.ChangeLobbyState("STARTED MATCHMAKING");
-        JSONObject jSONObject = new JSONObject(JSONObject.Type.OBJECT);
-        jSONObject.AddField("ID", HushManager.Instance.ID);
-        jSONObject.AddField("Name", HushManager.Instance.Name);
-        jSONObject.AddField("Mode", HushManager.Instance.currentMode);
-        jSONObject.AddField("type", "Survivor");
-        socket.Emit("searchMatch", jSONObject);
+        if(!searchingMatch)
+        {
+            HushManager.Instance.Slasher = false;
+            Debug.Log("Searching for match");
+            HushManager.Instance.ChangeLobbyState("STARTED MATCHMAKING");
+            JSONObject jSONObject = new JSONObject(JSONObject.Type.OBJECT);
+            jSONObject.AddField("ID", HushManager.Instance.ID);
+            jSONObject.AddField("Name", HushManager.Instance.Name);
+            jSONObject.AddField("Mode", HushManager.Instance.currentMode);
+            jSONObject.AddField("type", "Survivor");
+            socket.Emit("searchMatch", jSONObject);
+            searchingMatch = true;
+        }
     }
 
     public void QuitMatchSearch()
